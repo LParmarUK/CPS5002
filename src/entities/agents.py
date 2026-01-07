@@ -1,11 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional
 
 from .base import Living
 from ..utils.helpers import manhattan_wrap
-
-from .items import PlasmaSword, Shuriken, Mask
 
 
 @dataclass
@@ -29,7 +26,6 @@ class Dek(Predator):
             return
         cfg = world.cfg
 
-        # Exhaustion management
         if self.is_exhausted():
             self.rest(cfg)
             world.metrics.note_action(self.eid, "rest")
@@ -38,7 +34,7 @@ class Dek(Predator):
         thia = world.get_thia()
         kalisk = world.get_kalisk()
 
-        # Meet Thia early (for story accuracy)
+        # 1) Find Thia early
         if thia and thia.alive and not world.state.thia_met:
             if world.can_see(self.pos, thia.pos):
                 world.move_towards(self, thia.pos)
@@ -48,13 +44,13 @@ class Dek(Predator):
                 world.metrics.note_action(self.eid, "explore")
             return
 
-        # Pick up Thia if on same cell and she is incapacitated
+        # 2) Pick up Thia if incapacitated and in same cell
         if thia and thia.alive and thia.incapacitated and self.pos == thia.pos and not self.carrying_thia:
             self.carrying_thia = True
             world.metrics.note_action(self.eid, "carry_thia")
             return
 
-        # If strong enough, go for Kalisk
+        # 3) If strong enough, go for Kalisk
         if kalisk and kalisk.alive and (self.honour >= 45 or self.strength >= 20):
             world.move_towards(self, kalisk.pos)
             world.metrics.note_action(self.eid, "towards_kalisk")
@@ -62,7 +58,7 @@ class Dek(Predator):
                 world.combat(attacker=self, defender=kalisk, tag="dek_vs_kalisk")
             return
 
-        # Otherwise, hunt nearest hostile creature
+        # 4) Otherwise hunt nearest hostile
         prey = world.find_nearest_hostile(self.pos, max_dist=cfg.vision_radius)
         if prey:
             world.move_towards(self, prey.pos)
@@ -82,6 +78,7 @@ class ClanPredator(Predator):
     def tick(self, world: "World") -> None:
         if not self.alive:
             return
+
         cfg = world.cfg
         dek = world.get_dek()
         if not dek or not dek.alive:
@@ -89,7 +86,7 @@ class ClanPredator(Predator):
             world.metrics.note_action(self.eid, "patrol")
             return
 
-        # Father/Brother: challenge Dek if honour is low and they are nearby
+        # Father/Brother: challenge Dek if honour is low and nearby
         dist = manhattan_wrap(self.pos, dek.pos, world.size)
         if dist <= 3 and dek.honour < 20:
             world.move_towards(self, dek.pos)
@@ -109,18 +106,18 @@ class ClanPredator(Predator):
 @dataclass
 class Elder(ClanPredator):
     """
-    Very strong clan member.
+    Very Strong clan member.
     """
     def tick(self, world: "World") -> None:
         if not self.alive:
             return
+
         dek = world.get_dek()
         if not dek or not dek.alive:
             world.random_move(self)
             world.metrics.note_action(self.eid, "patrol")
             return
 
-        # Elder only intervenes if Dek is dishonourable OR threatens clan unfairly
         if dek.honour < 10 and manhattan_wrap(self.pos, dek.pos, world.size) <= 4:
             world.move_towards(self, dek.pos)
             world.metrics.note_action(self.eid, "elder_judgement")
@@ -169,13 +166,16 @@ class BasicSynth(Living):
 @dataclass
 class Tessa(Living):
     """
-    Evil strong synth. Has Cryo Grenade and Shoulder Laser behaviour.
+    Evil strong synth:
+    - Cryo Grenade: medium-high damage, slows Kalisk if it hits Kalisk (via ranged_hit cryo=True)
+    - Shoulder Laser: high damage, fires after charge delay
     """
-    laser_charge: int = 0  # counts up to cfg.shoulder_laser_charge
+    laser_charge: int = 0
 
     def tick(self, world: "World") -> None:
         if not self.alive:
             return
+
         cfg = world.cfg
         dek = world.get_dek()
         if not dek or not dek.alive:
@@ -184,21 +184,32 @@ class Tessa(Living):
 
         dist = manhattan_wrap(self.pos, dek.pos, world.size)
 
-        # Shoulder laser: charge then fire big laser
+        # charge shoulder laser
         self.laser_charge += 1
         if dist <= 6 and self.laser_charge >= cfg.shoulder_laser_charge:
             self.laser_charge = 0
-            world.ranged_hit(source=self.eid, target=dek, damage=cfg.ranged_damage + 14, kind="shoulder_laser")
+            world.ranged_hit(
+                source=self.eid,
+                target=dek,
+                damage=cfg.ranged_damage + 14,
+                kind="shoulder_laser",
+                cryo=False,
+            )
             world.metrics.note_action(self.eid, "laser_fire")
             return
 
-        # Cryo grenade if close: damage + slow 
+        # cryo grenade
         if dist <= 3 and self.stamina >= 10:
             self.spend_stamina(6)
-            world.ranged_hit(source=self.eid, target=dek, damage=cfg.ranged_damage + 6, kind="cryo_grenade", cryo=True)
+            world.ranged_hit(
+                source=self.eid,
+                target=dek,
+                damage=cfg.ranged_damage + 6,
+                kind="cryo_grenade",
+                cryo=True,
+            )
             world.metrics.note_action(self.eid, "cryo_grenade")
             return
 
-        # Otherwise move toward Dek
         world.move_towards(self, dek.pos)
         world.metrics.note_action(self.eid, "pursue")
