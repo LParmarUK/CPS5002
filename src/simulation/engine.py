@@ -203,19 +203,43 @@ class World:
             e.spend_stamina(max(1, cost - 1))
 
     # ranged hits (plants + tessa)
-    def ranged_hit(self, source: str, target: Living, damage: int, kind: str, cryo: bool = False) -> None:
+    def ranged_hit(
+    self,
+    source: str,
+    target: Living,
+    damage: int,
+    kind: str,
+    cryo: bool = False,
+    ) -> None:
         if not target.alive:
             return
-        target.take_damage(damage)
-        self.metrics.note("ranged_hit", source=source, target=target.eid, dmg=damage, kind=kind, hp=target.health)
 
+        target.take_damage(damage)
+
+        self.metrics.note(
+            "ranged_hit",
+            source=source,
+            target=target.eid,
+            dmg=damage,
+            attack_kind=kind,
+            hp=target.health,
+        )
+    # Cryo effect (used by Tessa)
         if cryo:
-            k = self.get_kalisk()
-            if k and target.eid == k.eid:
-                k.slowed_turns = max(k.slowed_turns, self.cfg.cryo_slow_turns)
+            kalisk = self.get_kalisk()
+            if kalisk and target.eid == kalisk.eid:
+                kalisk.slowed_turns = max(
+                    kalisk.slowed_turns,
+                    self.cfg.cryo_slow_turns,
+                )
 
         if not target.alive:
-            self.metrics.note("death", who=target.eid, reason=kind)
+            self.metrics.note(
+                "death",
+                who=target.eid,
+                reason=kind,
+            )
+
 
     # cell resolution (hazards + items)
     def _resolve_cell(self, mover: Living) -> None:
@@ -231,7 +255,7 @@ class World:
             # Razor grass damages on entry
             if isinstance(obj, RazorGrass):
                 mover.take_damage(obj.damage)
-                self.metrics.note("hazard", kind="razor_grass", victim=mover.eid, dmg=obj.damage, hp=mover.health)
+                self.metrics.note("hazard", hazard_kind="razor_grass", victim=mover.eid, dmg=obj.damage, hp=mover.health)
                 if not mover.alive:
                     self.metrics.note("death", who=mover.eid, reason="razor_grass")
                     return
