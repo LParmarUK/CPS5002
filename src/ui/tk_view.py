@@ -5,14 +5,18 @@ from tkinter import ttk
 from typing import Optional
 
 from ..simulation.engine import World
-from ..entities.base import Entity
 
 
 class TkGridView(ttk.Frame):
     """
-    Simple Tkinter grid viewer for the simulation.
-    Draws each cell as a colored rectangle with a glyph character.
+    Tkinter grid viewer:
+    - Cell background shows terrain: forest (dark green), grassland (light green)
+    - Entities render as glyphs on top
+    - Plant hazards have distinct glyphs and colours
     """
+
+    FOREST = "#0B3D0B"
+    GRASS = "#7CFC90"
 
     def __init__(
         self,
@@ -26,7 +30,6 @@ class TkGridView(ttk.Frame):
         self.size = world.size
         self.cell_px = cell_px
 
-        # Layout: canvas left, stats right, controls bottom
         self.canvas = tk.Canvas(
             self,
             width=self.size * cell_px,
@@ -45,9 +48,13 @@ class TkGridView(ttk.Frame):
         self.lbl_stats = ttk.Label(self.side, textvariable=self.stats, justify="left")
         self.lbl_stats.grid(row=1, column=0, sticky="w")
 
+        self.legend = tk.StringVar(value="")
+        self.lbl_legend = ttk.Label(self.side, textvariable=self.legend, justify="left")
+        self.lbl_legend.grid(row=2, column=0, sticky="w", pady=(10, 0))
+
         self.log = tk.StringVar(value="")
-        self.lbl_log = ttk.Label(self.side, textvariable=self.log, justify="left", foreground="#666666")
-        self.lbl_log.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        self.lbl_log = ttk.Label(self.side, textvariable=self.log, justify="left")
+        self.lbl_log.grid(row=3, column=0, sticky="w", pady=(10, 0))
 
         self.controls = ttk.Frame(self)
         self.controls.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -69,15 +76,14 @@ class TkGridView(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        # Animation state
         self._running = False
         self._after_id: Optional[str] = None
 
-        # Pre-create grid rects + text items for speed
         self._rect_ids = [[None] * self.size for _ in range(self.size)]
         self._text_ids = [[None] * self.size for _ in range(self.size)]
         self._init_canvas_items()
 
+        self._set_legend()
         self.draw()
 
     def _init_canvas_items(self) -> None:
@@ -86,28 +92,55 @@ class TkGridView(ttk.Frame):
             for x in range(self.size):
                 x0, y0 = x * px, y * px
                 x1, y1 = x0 + px, y0 + px
-                rid = self.canvas.create_rectangle(x0, y0, x1, y1, outline="#2b2b2b", width=1, fill="#101010")
-                tid = self.canvas.create_text(x0 + px / 2, y0 + px / 2, text=".", fill="#bbbbbb", font=("Consolas", 12, "bold"))
+                rid = self.canvas.create_rectangle(x0, y0, x1, y1, outline="#1f1f1f", width=1, fill=self.GRASS)
+                tid = self.canvas.create_text(x0 + px / 2, y0 + px / 2, text="", fill="#000000", font=("Consolas", 12, "bold"))
                 self._rect_ids[y][x] = rid
                 self._text_ids[y][x] = tid
 
+    def _set_legend(self) -> None:
+        self.legend.set(
+            "Legend\n"
+            "Characters:\n"
+            "  D = Dek\n"
+            "  T = Thia\n"
+            "  S = Tessa\n"
+            "  K = Kalisk (Apex)\n"
+            "  C = Bud (Child Kalisk, friendly)\n"
+            "  F = Father  B = Brother  E = Elder\n\n"
+            "Terrain:\n"
+            "  Forest = dark green\n"
+            "  Grasslands = light green\n\n"
+            "Plants:\n"
+            "  ^ = Spike Pods (ranged)\n"
+            "  ~ = Razor Grass (on-step dmg)\n"
+            "  V = Attack Vines (ambush)\n"
+        )
+
+
     def _glyph_for_cell(self, x: int, y: int) -> str:
-        # priority draw similar to ASCII renderer
         priority = {
-            "A": 90,
-            "D": 80,
-            "F": 70,
-            "B": 70,
-            "T": 60,
-            "m": 50,
-            "U": 30,
-            "R": 30,
-            "X": 20,
-            "P": 10,
-            ".": 0,
+            "K": 95,  # Kalisk
+            "S": 90,  # Tessa
+            "D": 85,  # Dek
+            "E": 80,  # Elder
+            "F": 75,  # Father
+            "B": 75,  # Brother
+            "T": 70,  # Thia
+            "s": 60,  # basic synth
+            "l": 55,  # luna bug
+            "b": 50,  # bone bison
+            "g": 48,  # genna vulture
+            "m": 45,  # slug / micro dragon etc.
+            "V": 40,  # attack vines
+            "^": 35,  # spike pods
+            "~": 30,  # razor grass
+            "P": 25,  # plasma sword
+            "U": 25,  # shuriken
+            "M": 25,  # mask
+            "": 0,
         }
 
-        best_g = "."
+        best_g = ""
         best_p = 0
         ids = self.world.grid.at((x, y))
         for eid in ids:
@@ -123,73 +156,84 @@ class TkGridView(ttk.Frame):
                 best_g = g
         return best_g
 
-    def _style_for_glyph(self, g: str) -> tuple[str, str]:
-        """
-        Returns (cell_fill, text_color). Keep it simple and readable.
-        """
-        # Dark background palette + accent for key actors
+    def _fg_for_glyph(self, g: str) -> str:
+        # Terrain is background; glyph colours focus on readability.
         if g == "D":
-            return ("#003b39", "#00fff7")
+            return "#00FFF7"
         if g == "T":
-            return ("#1f2a44", "#e6f0ff")
-        if g == "A":
-            return ("#3b0010", "#ffd1dc")
-        if g in ("F", "B"):
-            return ("#2c2c2c", "#ffffff")
-        if g == "m":
-            return ("#2a1f00", "#ffe29a")
-        if g == "X":
-            return ("#2a0000", "#ff9c9c")
+            return "#FFFFFF"
+        if g == "C":
+            return "#FFFFFF"
+        if g == "S":
+            return "#FF3B3B"
+        if g == "K":
+            return "#FFD1DC"
+        if g in ("F", "B", "E"):
+            return "#FFFFFF"
+        if g == "s":
+            return "#FFB86B"
+        if g in ("m", "g", "b", "l"):
+            return "#000000"
+        # Plant hazards
+        if g == "^":
+            return "#7A1FFF"
+        if g == "~":
+            return "#0047FF"
+        if g == "V":
+            return "#00FF3B"
+        # Items
         if g == "P":
-            return ("#0f1f2a", "#b8e6ff")
+            return "#FFEA00"
         if g == "U":
-            return ("#003a1a", "#baffc9")
-        if g == "R":
-            return ("#2a0033", "#f4c2ff")
-        return ("#101010", "#bbbbbb")
+            return "#FFEA00"
+        if g == "M":
+            return "#FFEA00"
+        return "#000000"
 
     def draw(self) -> None:
-        # Update all cells
+        # paint terrain first
+        for y in range(self.size):
+            for x in range(self.size):
+                t = self.world.grid.terrain_at((x, y))
+                fill = self.FOREST if t == "forest" else self.GRASS
+                self.canvas.itemconfigure(self._rect_ids[y][x], fill=fill)
+
+        # overlay entities as glyphs
         for y in range(self.size):
             for x in range(self.size):
                 g = self._glyph_for_cell(x, y)
-                fill, fg = self._style_for_glyph(g)
-
-                self.canvas.itemconfigure(self._rect_ids[y][x], fill=fill)
+                fg = self._fg_for_glyph(g)
                 self.canvas.itemconfigure(self._text_ids[y][x], text=g, fill=fg)
 
-        # Stats panel
+        # stats panel
         dek = self.world.get_dek()
         thia = self.world.get_thia()
-        adv = self.world.get_adversary()
+        kalisk = self.world.get_kalisk()
+        tessa = self.world.get_tessa()
 
-        s = []
-        s.append(f"Step: {self.world.metrics.steps}")
-        s.append("")
+        lines = [f"Step: {self.world.metrics.steps}", ""]
         if dek:
-            s.append("DEK")
-            s.append(f"  HP: {dek.health}   STA: {dek.stamina}")
-            s.append(f"  STR: {dek.strength}  HON: {dek.honour}")
-            s.append(f"  TRO: {dek.trophies}  Carry: {dek.carrying_thia}")
-            s.append("")
+            lines += [
+                "DEK",
+                f"  HP: {dek.health}   STA: {dek.stamina}",
+                f"  STR: {dek.strength}  HON: {dek.honour}",
+                f"  TRO: {dek.trophies}  Carry: {dek.carrying_thia}",
+                f"  Items: Plasma={dek.plasma_sword} Shuriken={dek.shuriken} Mask={dek.mask}",
+                "",
+            ]
         if thia:
-            s.append("THIA")
-            s.append(f"  HP: {thia.health}   Incap: {thia.incapacitated}")
-            s.append("")
-        if adv:
-            s.append("ADVERSARY")
-            s.append(f"  HP: {adv.health}   Enrage: {adv.enraged}")
-            s.append("")
+            lines += ["THIA", f"  HP: {thia.health}   Incap: {thia.incapacitated}", ""]
+        if tessa:
+            lines += ["TESSA", f"  HP: {tessa.health}   LaserCharge: {tessa.laser_charge}", ""]
+        if kalisk:
+            lines += ["KALISK", f"  HP: {kalisk.health}   Enrage: {kalisk.enraged}   Slow: {kalisk.slowed_turns}", ""]
 
-        s.append("STATE")
-        s.append(f"  Win: {self.world.state.win}")
-        s.append(f"  Lose: {self.world.state.lose}")
+        lines += ["STATE", f"  Win: {self.world.state.win}", f"  Lose: {self.world.state.lose}"]
         if self.world.state.end_reason:
-            s.append(f"  End: {self.world.state.end_reason}")
+            lines.append(f"  End: {self.world.state.end_reason}")
 
-        self.stats.set("\n".join(s))
+        self.stats.set("\n".join(lines))
 
-        # End condition message
         if self.world.state.win or self.world.state.lose:
             self.log.set(f"Simulation ended: {self.world.state.end_reason}")
             self.pause()
