@@ -93,7 +93,13 @@ class TkGridView(ttk.Frame):
                 x0, y0 = x * px, y * px
                 x1, y1 = x0 + px, y0 + px
                 rid = self.canvas.create_rectangle(x0, y0, x1, y1, outline="#1f1f1f", width=1, fill=self.GRASS)
-                tid = self.canvas.create_text(x0 + px / 2, y0 + px / 2, text="", fill="#000000", font=("Consolas", 12, "bold"))
+                tid = self.canvas.create_text(
+                    x0 + px / 2,
+                    y0 + px / 2,
+                    text="",
+                    fill="#000000",
+                    font=("Consolas", 12, "bold"),
+                )
                 self._rect_ids[y][x] = rid
                 self._text_ids[y][x] = tid
 
@@ -116,7 +122,6 @@ class TkGridView(ttk.Frame):
             "  V = Attack Vines (ambush)\n"
         )
 
-
     def _glyph_for_cell(self, x: int, y: int) -> str:
         priority = {
             "K": 95,  # Kalisk
@@ -126,6 +131,7 @@ class TkGridView(ttk.Frame):
             "F": 75,  # Father
             "B": 75,  # Brother
             "T": 70,  # Thia
+            "C": 69,  # Bud
             "s": 60,  # basic synth
             "l": 55,  # luna bug
             "b": 50,  # bone bison
@@ -160,9 +166,7 @@ class TkGridView(ttk.Frame):
         # Terrain is background; glyph colours focus on readability.
         if g == "D":
             return "#00FFF7"
-        if g == "T":
-            return "#FFFFFF"
-        if g == "C":
+        if g in ("T", "C"):
             return "#FFFFFF"
         if g == "S":
             return "#FF3B3B"
@@ -182,11 +186,7 @@ class TkGridView(ttk.Frame):
         if g == "V":
             return "#00FF3B"
         # Items
-        if g == "P":
-            return "#FFEA00"
-        if g == "U":
-            return "#FFEA00"
-        if g == "M":
+        if g in ("P", "U", "M"):
             return "#FFEA00"
         return "#000000"
 
@@ -208,10 +208,12 @@ class TkGridView(ttk.Frame):
         # stats panel
         dek = self.world.get_dek()
         thia = self.world.get_thia()
+        bud = getattr(self.world, "get_bud", lambda: None)()
         kalisk = self.world.get_kalisk()
         tessa = self.world.get_tessa()
 
         lines = [f"Step: {self.world.metrics.steps}", ""]
+
         if dek:
             lines += [
                 "DEK",
@@ -223,12 +225,27 @@ class TkGridView(ttk.Frame):
             ]
         if thia:
             lines += ["THIA", f"  HP: {thia.health}   Incap: {thia.incapacitated}", ""]
+        if bud:
+            lines += ["BUD", f"  HP: {bud.health}   Met: {getattr(bud, 'met_dek', False)}", ""]
         if tessa:
             lines += ["TESSA", f"  HP: {tessa.health}   LaserCharge: {tessa.laser_charge}", ""]
         if kalisk:
-            lines += ["KALISK", f"  HP: {kalisk.health}   Enrage: {kalisk.enraged}   Slow: {kalisk.slowed_turns}", ""]
+            lines += [
+                "KALISK",
+                f"  HP: {kalisk.health}   Enrage: {kalisk.enraged}   Slow: {kalisk.slowed_turns}",
+                "",
+            ]
 
-        lines += ["STATE", f"  Win: {self.world.state.win}", f"  Lose: {self.world.state.lose}"]
+        # Mileston (Story State)
+        lines += [
+            "STATE",
+            f"  Thia met: {self.world.state.thia_met}",
+            f"  Bud found: {self.world.state.bud_found}",
+            f"  Kalisk captured: {self.world.state.kalisk_captured}",
+            f"  Tessa dead: {self.world.state.tessa_dead}",
+            f"  Win: {self.world.state.win}",
+            f"  Lose: {self.world.state.lose}",
+        ]
         if self.world.state.end_reason:
             lines.append(f"  End: {self.world.state.end_reason}")
 
