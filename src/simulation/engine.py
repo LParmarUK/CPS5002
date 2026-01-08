@@ -165,7 +165,7 @@ class World:
                 continue
             if e.eid == src.eid:
                 continue
-            if e.glyph in ("D", "F", "B", "E", "T", "C"):
+            if e.glyph in ("D", "E", "T", "C"):
                 d = manhattan_wrap(src.pos, e.pos, self.size)
                 if d <= max_dist:
                     candidates.append(e)
@@ -181,7 +181,7 @@ class World:
                 continue
             if e.eid == src.eid:
                 continue
-            if e.glyph in ("D", "F", "B", "E", "T", "C"):
+            if e.glyph in ("D", "E", "T", "C"):
                 d = manhattan_wrap(src.pos, e.pos, self.size)
                 if d <= max_dist:
                     candidates.append(e)
@@ -268,6 +268,14 @@ class World:
             if target.health <= 0:
                 target.health = 1
                 target.alive = True
+        
+        # Father/Brother are invincible (can’t die)
+        if target.eid in ("father", "brother"):
+            if target.health <= 0:
+                target.health = 1
+            target.alive = True
+            return
+
 
 
     # ranged hits
@@ -345,7 +353,31 @@ class World:
 
         # Tessa cannot be killed until capture
         if defender.eid == "tessa" and not self.state.kalisk_captured:
-            self.metrics.note("combat", tag=tag, attacker=attacker.eid, defender=defender.eid, hit=False, dmg=0, hp=defender.health, blocked=True)
+            self.metrics.note(
+                "combat",
+                tag=tag,
+                attacker=attacker.eid,
+                defender=defender.eid,
+                hit=False,
+                dmg=0,
+                hp=defender.health,
+                blocked=True,
+            )
+            return
+
+        # Father/Brother can only be damaged by Dek
+        if defender.eid in ("father", "brother") and attacker.eid != "dek":
+            self.metrics.note(
+                "combat",
+                tag=tag,
+                attacker=attacker.eid,
+                defender=defender.eid,
+                hit=False,
+                dmg=0,
+                hp=defender.health,
+                blocked=True,
+                reason="clan_protected",
+            )
             return
 
         atk_score = attacker.strength + (attacker.stamina / 10)
@@ -360,12 +392,31 @@ class World:
             dmg = int(self.cfg.base_melee_damage + attacker.strength * 0.55)
             defender.take_damage(dmg)
 
+            # Honour gain: Dek duelling Father/Brother (even though they are invincible)
+            if attacker.eid == "dek" and defender.eid in ("father", "brother"):
+                attacker.honour += 1
+                self.metrics.note_action(attacker.eid, "clan_duel_honour")
+
         attacker.spend_stamina(4)
         defender.spend_stamina(2)
 
+        # Apply story protections (includes invincibility clamps)
         self._protect_story_targets(defender)
 
-        self.metrics.note("combat", tag=tag, attacker=attacker.eid, defender=defender.eid, hit=hit, dmg=dmg, hp=defender.health)
+        # Extra safety: ensure Father/Brother never die even if protections change later
+        if defender.eid in ("father", "brother") and defender.health <= 0:
+            defender.health = 1
+            defender.alive = True
+
+        self.metrics.note(
+            "combat",
+            tag=tag,
+            attacker=attacker.eid,
+            defender=defender.eid,
+            hit=hit,
+            dmg=dmg,
+            hp=defender.health,
+        )
 
         # provoke bison
         if isinstance(defender, BoneBison) and hit:
@@ -385,7 +436,7 @@ class World:
         if k and defender.eid == k.eid and hit:
             k.enraged = min(10, k.enraged + 1)
 
-        # death handling
+        # death handling (NOTE: clan members do not trigger this now)
         if not defender.alive:
             self.metrics.note("death", who=defender.eid, reason="combat")
 
@@ -395,6 +446,7 @@ class World:
                 self.state.win = True
                 self.state.end_reason = "tessa_killed"
                 return
+
 
     # step loop
     def step(self) -> None:
@@ -457,9 +509,6 @@ class World:
         if not dek or not dek.alive:
             self.state.lose = True
             self.state.end_reason = "dek_dead"
-        elif self.metrics.steps >= self.cfg.max_steps:
-            self.state.lose = True
-            self.state.end_reason = "time_limit"
 
     # summary
     def summary(self) -> Dict[str, Any]:
@@ -517,7 +566,7 @@ def build_world(cfg: Config) -> World:
 
     # Dek + Thia + Bud should survive, so spawn them safely
     dek_pos = w.random_empty_nonhazard_pos()
-    w.add_entity(Dek(eid="dek", name="Dek", pos=dek_pos, glyph="D", health=110, stamina=80, strength=14, honour=0))
+    w.add_entity(Dek(eid="dek", name="Dek", pos=dek_pos, glyph="D", health=220, stamina=80, strength=26, honour=0))
 
     w.add_entity(Thia(eid="thia", name="Thia", pos=w.random_safe_pos_strict({"D", "S", "K"}, 7), glyph="T", health=60, stamina=35, strength=6, alive=True, incapacitated=True))
 
@@ -532,7 +581,7 @@ def build_world(cfg: Config) -> World:
     w.add_entity(Elder(eid="elder", name="Elder", pos=w.random_safe_pos_strict({"D"}, 8), glyph="E", health=160, stamina=85, strength=22, honour=45, role="elder"))
 
     # boss far away
-    w.add_entity(KaliskApex(eid="kalisk", name="Kalisk", pos=w.random_safe_pos_strict({"D", "T", "C"}, 11), glyph="K", health=260, stamina=120, strength=26))
+    w.add_entity(KaliskApex(eid="kalisk", name="Kalisk", pos=w.random_safe_pos_strict({"D", "T", "C"}, 11), glyph="K", health=860, stamina=300, strength=26))
 
     # Tessa hunts Kalisk first (far from Dek/Thia/Bud)
     w.add_entity(Tessa(eid="tessa", name="Tessa", pos=w.random_safe_pos_strict({"D", "T", "C", "K"}, 9), glyph="S", health=120, stamina=90, strength=18))
