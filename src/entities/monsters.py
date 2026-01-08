@@ -158,3 +158,42 @@ class KaliskApex(Living):
                 world.combat(attacker=self, defender=dek, tag="kalisk_smash")
         else:
             world.random_move(self, step=1)
+
+from dataclasses import dataclass
+from .base import Living
+from ..utils.helpers import manhattan_wrap
+
+@dataclass
+class ChildKalisk(Living):
+    """
+    Friendly monster. Cannot be killed.
+    Nickname: Bud
+    Glyph: C
+    """
+    met_dek: bool = False
+
+    def tick(self, world: "World") -> None:
+        if not self.alive:
+            return
+
+        dek = world.get_dek()
+        if not dek:
+            return
+
+        # meet/bond
+        if self.pos == dek.pos:
+            self.met_dek = True
+            world.state.bud_found = True
+            world.metrics.note_action(self.eid, "bond_with_dek")
+
+        # follow once met
+        if self.met_dek and manhattan_wrap(self.pos, dek.pos, world.size) > 1:
+            world.move_towards(self, dek.pos)
+            world.metrics.note_action(self.eid, "follow_dek")
+
+        # defend: attack nearby hostile (medium power)
+        hostile = world.find_nearest_hostile(self.pos, max_dist=2)
+        if hostile:
+            world.move_towards(self, hostile.pos)
+            if self.pos == hostile.pos:
+                world.combat(attacker=self, defender=hostile, tag="bud_defend")
